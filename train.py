@@ -15,6 +15,7 @@ Stages, start to finish, no manual steps:
 Optional environment overrides (handy for a quick dry run):
   EPOCHS=1            train for fewer epochs
   DATASET_DIR=path    use an already-downloaded YOLO dataset instead
+  REUSE_WEIGHTS=1     skip training if weights/best.pt already exists
 """
 
 from __future__ import annotations
@@ -150,6 +151,10 @@ def finetune(data_yaml: Path) -> Path:
     best = Path(model.trainer.best)
     C.WEIGHTS_DIR.mkdir(exist_ok=True)
     shutil.copy(best, C.BEST_WEIGHTS)
+    # Ultralytics' AMP check can drop a stray checkpoint into weights/; keep only ours.
+    for stray in C.WEIGHTS_DIR.glob("*.pt"):
+        if stray != C.BEST_WEIGHTS:
+            stray.unlink()
     print(f"Saved {C.BEST_WEIGHTS}")
     return C.BEST_WEIGHTS
 
@@ -187,13 +192,16 @@ def evaluate_detection(weights: Path, data_yaml: Path, names: list[str]) -> dict
 def image_scores(model: YOLO, imgs: list[Path], class_names: set[str]) -> np.ndarray:
     """Max confidence of any box whose class is in class_names, 0 if none."""
     scores = []
-    for res in model.predict([str(p) for p in imgs], conf=0.001, imgsz=C.IMGSZ,
-                             stream=True, verbose=False):
-        best = 0.0
-        for cls, conf in zip(res.boxes.cls.tolist(), res.boxes.conf.tolist()):
-            if model.names[int(cls)] in class_names:
-                best = max(best, conf)
-        scores.append(best)
+    paths = [str(p) for p in imgs]
+    # Small chunks: passing all 700 paths at once makes Ultralytics build one
+    # giant batch and run out of GPU memory.
+    for i in range(0, len(paths), C.BATCH):
+        for res in model.predict(paths[i:i + C.BATCH], conf=0.001, imgsz=C.IMGSZ, verbose=False):
+            best = 0.0
+            for cls, conf in zip(res.boxes.cls.tolist(), res.boxes.conf.tolist()):
+                if model.names[int(cls)] in class_names:
+                    best = max(best, conf)
+            scores.append(best)
     return np.array(scores)
 
 
@@ -245,7 +253,11 @@ def main() -> None:
     (C.ARTIFACTS_DIR / "dataset_stats.json").write_text(json.dumps(stats, indent=2))
 
     print("\n== Finetuning")
-    weights = finetune(data_yaml)
+    if os.environ.get("REUSE_WEIGHTS") and C.BEST_WEIGHTS.exists():
+        print(f"REUSE_WEIGHTS set: skipping training, using {C.BEST_WEIGHTS}")
+        weights = C.BEST_WEIGHTS
+    else:
+        weights = finetune(data_yaml)
 
     print("\n== Detection metrics on test split")
     det = evaluate_detection(weights, data_yaml, names)
