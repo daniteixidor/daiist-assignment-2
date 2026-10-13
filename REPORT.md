@@ -17,7 +17,7 @@ are never seen.
 **Who acts.** The site safety officer (reviews) and the zone supervisor (interventions).
 
 **Unit and positive class.** One snapshot. Positive = the snapshot contains at
-least one `head` (a worker's head without a helmet).
+least one (a worker's head without a helmet).
 
 **Why the two errors cost different amounts.**
 
