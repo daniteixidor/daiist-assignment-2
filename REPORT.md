@@ -1,16 +1,16 @@
 # Assignment 2 Report
 
 - **Name**: Daniel Teixidor
-- **Student ID**: TODO
-- **Email**: TODO
-- **Group**: TODO [BBADBA 5A | BBADBA 5B | PPLEDBA 5A | BDBA 3A]
+- **Student ID**: 
+- **Email**: dteixidor.ieu2022@student.ie.edu
+- **Group**: BBADBA 5A
 
 ## Business problem, and the cost of being wrong
 
 **Decision.** On a construction site, fixed cameras take a snapshot of each work
 zone every 5 minutes. For each snapshot the system decides one of three things:
-*pass* (nothing happens), *review* (the site safety officer looks at the frame), or
-*fail* (the supervisor gets an alert and walks over to the worker without a helmet).
+pass (nothing happens), review (the site safety officer looks at the frame), or
+fail (the supervisor gets an alert and walks over to the worker without a helmet).
 Today that decision is made by a supervisor walking the site, so most violations
 are never seen.
 
