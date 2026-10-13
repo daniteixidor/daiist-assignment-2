@@ -199,5 +199,5 @@ model alone**. The extra €0.50 reviews catch violations the model was unsure a
 ## Generative AI use disclosure
 
 I used Claude (Anthropic) to write the code (`train.py`, `app.py`, `costing.py`,
-`config.py`) and to help draft and format this report. I checked the problem
-framing, cost figures, thresholds and conclusions, and I can explain each of them.
+`config.py`) and to help draft and format this report. I develop the problem
+framing, decision making, cost figures, thresholds and conclusions, and I can explain each of them.
