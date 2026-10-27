@@ -1,3 +1,22 @@
+"""
+Assignment 2: training pipeline (run with `uv run python main.py train`).
+
+Stages, start to finish, no manual steps:
+  1. Download the public Roboflow dataset named in config.py.
+  2. Describe it: images and instances per class per split, object sizes.
+  3. Finetune yolo11n from COCO-pretrained weights; save weights/best.pt.
+  4. Evaluate on the test split, per class, with the confusion matrix.
+  5. Baselines on the same test split: COCO yolo11n zero-shot, and a
+     trivial "predict nothing" model.
+  6. Score every test image, sweep the threshold, cost it, and choose the
+     binary threshold and the pass/review/fail band.
+  7. Save everything the dashboard needs into artifacts/.
+
+Optional environment overrides (handy for a quick dry run):
+  EPOCHS=1            train for fewer epochs
+  DATASET_DIR=path    use an already-downloaded YOLO dataset instead
+  REUSE_WEIGHTS=1     skip training if weights/best.pt already exists
+"""
 
 from __future__ import annotations
 
@@ -164,9 +183,30 @@ def evaluate_detection(weights: Path, data_yaml: Path, names: list[str]) -> dict
     return {
         "overall": {"AP50": round(float(m.box.map50), 4), "mAP50-95": round(float(m.box.map), 4)},
         "per_class": per_class,
+        # Ultralytics builds this matrix at the validation confidence (0.001), so it
+        # counts every faint box the model emits. Good for AP, misleading as a picture
+        # of the errors we would act on: see confusion_at_threshold() below.
         "confusion_matrix": {"labels": names + ["background"], "matrix": cm,
-                             "orientation": "rows = predicted, columns = true"},
+                             "orientation": "rows = predicted, columns = true",
+                             "conf": 0.001},  # Ultralytics' default val confidence
     }
+
+
+def confusion_at_threshold(weights: Path, data_yaml: Path, names: list[str], conf: float) -> dict:
+    """Box-level confusion matrix counting only boxes at or above the chosen threshold,
+    i.e. the boxes that would actually drive a decision in production."""
+    model = YOLO(str(weights))
+    m = model.val(
+        data=str(data_yaml), split="test", imgsz=C.IMGSZ, batch=C.BATCH, conf=conf,
+        project=str(C.ROOT / "runs"), name="test_eval_at_threshold", exist_ok=True, plots=True,
+    )
+    src = Path(m.save_dir) / "confusion_matrix.png"
+    if src.exists():
+        shutil.copy(src, C.ARTIFACTS_DIR / "confusion_matrix_at_threshold.png")
+    return {"labels": names + ["background"],
+            "matrix": m.confusion_matrix.matrix.astype(int).tolist(),
+            "orientation": "rows = predicted, columns = true",
+            "conf": conf}
 
 
 # --------------------------------------------------------------------------- 5/6
@@ -282,6 +322,8 @@ def main() -> None:
     sweep.to_csv(C.ARTIFACTS_DIR / "cost_sweep.csv", index=False)
     t_bin = float(sweep.loc[sweep.cost_per_1000.idxmin(), "threshold"])
     plot_cost_curve(sweep, t_bin, C.ARTIFACTS_DIR / "cost_curve.png")
+    det["confusion_matrix_at_threshold"] = confusion_at_threshold(weights, data_yaml, names, t_bin)
+    print(json.dumps(det["confusion_matrix_at_threshold"], indent=2))
 
     capacity_share = C.REVIEW_CAPACITY_PER_DAY / C.CASES_PER_DAY
     band = costing.best_band(ft_scores, labels, params, max_review_share=capacity_share)

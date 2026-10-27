@@ -1,3 +1,9 @@
+"""
+Assignment 2: Gradio dashboard (run with `uv run python main.py app`).
+
+Loads the committed weights in weights/ and the artifacts train.py saved in
+artifacts/. Never trains anything.
+"""
 
 from __future__ import annotations
 
@@ -100,9 +106,17 @@ def update(t_low, t_high, base_rate, c_fn, c_fp, c_review):
 per_class = pd.DataFrame(METRICS["detection"]["per_class"])
 overall = METRICS["detection"]["overall"]
 img_cmp = pd.DataFrame(METRICS["image_level_comparison"])
+def cm_frame(cm: dict) -> pd.DataFrame:
+    return pd.DataFrame(cm["matrix"], index=[f"pred {l}" for l in cm["labels"]],
+                        columns=[f"true {l}" for l in cm["labels"]]).reset_index(names="")
+
+
 cm = METRICS["detection"]["confusion_matrix"]
-cm_df = pd.DataFrame(cm["matrix"], index=[f"pred {l}" for l in cm["labels"]],
-                     columns=[f"true {l}" for l in cm["labels"]]).reset_index(names="")
+cm_df = cm_frame(cm)
+CM_LOW_CONF = cm.get("conf", 0.001)
+# Present once train.py has been re-run with confusion_at_threshold().
+cm_t = METRICS["detection"].get("confusion_matrix_at_threshold")
+cm_t_df = cm_frame(cm_t) if cm_t else None
 test_counts = pd.DataFrame(
     [[int(((S >= T_BIN) & Y).sum()), int(((S < T_BIN) & Y).sum())],
      [int(((S >= T_BIN) & ~Y).sum()), int(((S < T_BIN) & ~Y).sum())]],
@@ -146,7 +160,12 @@ with gr.Blocks(title="Hard-hat compliance: costed thresholds") as demo:
     with gr.Tab("Per-class results"):
         gr.Markdown(f"**Overall (test split):** AP50 = {overall['AP50']:.3f}, mAP50-95 = {overall['mAP50-95']:.3f}")
         gr.Dataframe(per_class, label="Per-class detection metrics (test split)")
-        gr.Dataframe(cm_df, label=f"Box-level confusion matrix ({cm['orientation']})")
+        if cm_t_df is not None:
+            gr.Dataframe(cm_t_df, label=f"Box-level confusion matrix at the chosen threshold, "
+                                        f"conf ≥ {cm_t['conf']:.2f} ({cm_t['orientation']})")
+        gr.Dataframe(cm_df, label=f"Box-level confusion matrix at Ultralytics' validation confidence "
+                                  f"{CM_LOW_CONF:g}: counts every faint box, so the background "
+                                  f"column is inflated ({cm['orientation']})")
         gr.Dataframe(test_counts, label=f"Image-level confusion on the raw test split at chosen t={T_BIN:.2f}")
         gr.Dataframe(img_cmp, label="Image-level comparison vs baselines (same test split)")
         gr.Dataframe(split_df, label="Dataset splits")
