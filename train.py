@@ -1,5 +1,4 @@
 
-
 from __future__ import annotations
 
 import json
@@ -22,7 +21,7 @@ IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 SPLITS = {"train": "train", "val": "valid", "test": "test"}
 
 
-#1
+# --------------------------------------------------------------------------- 1
 def download_dataset() -> Path:
     override = os.environ.get("DATASET_DIR")
     if override:
@@ -59,7 +58,7 @@ def write_clean_yaml(ds: Path) -> tuple[Path, list[str]]:
     return out, list(names)
 
 
-#2
+# --------------------------------------------------------------------------- 2
 def images_in(folder: Path) -> list[Path]:
     return sorted(p for p in folder.glob("*") if p.suffix.lower() in IMG_EXT)
 
@@ -121,7 +120,7 @@ def describe_dataset(ds: Path, names: list[str]) -> dict:
     return stats
 
 
-#3
+# --------------------------------------------------------------------------- 3
 def finetune(data_yaml: Path) -> Path:
     epochs = int(os.environ.get("EPOCHS", C.EPOCHS))
     model = YOLO(C.BASE_MODEL)
@@ -141,7 +140,7 @@ def finetune(data_yaml: Path) -> Path:
     return C.BEST_WEIGHTS
 
 
-# 4
+# --------------------------------------------------------------------------- 4
 def evaluate_detection(weights: Path, data_yaml: Path, names: list[str]) -> dict:
     model = YOLO(str(weights))
     m = model.val(
@@ -170,11 +169,13 @@ def evaluate_detection(weights: Path, data_yaml: Path, names: list[str]) -> dict
     }
 
 
-# 5/6
+# --------------------------------------------------------------------------- 5/6
 def image_scores(model: YOLO, imgs: list[Path], class_names: set[str]) -> np.ndarray:
     """Max confidence of any box whose class is in class_names, 0 if none."""
     scores = []
     paths = [str(p) for p in imgs]
+    # Small chunks: passing all 700 paths at once makes Ultralytics build one
+    # giant batch and run out of GPU memory.
     for i in range(0, len(paths), C.BATCH):
         for res in model.predict(paths[i:i + C.BATCH], conf=0.001, imgsz=C.IMGSZ, verbose=False):
             best = 0.0
@@ -220,7 +221,7 @@ def plot_cost_curve(sweep: pd.DataFrame, chosen: float, path: Path) -> None:
     plt.close(fig)
 
 
-# main
+# --------------------------------------------------------------------------- main
 def main() -> None:
     C.ARTIFACTS_DIR.mkdir(exist_ok=True)
     ds = download_dataset()
@@ -254,14 +255,18 @@ def main() -> None:
     pos_id = names.index(C.POSITIVE_CLASS)
     labels = np.array([any(c == pos_id for c, _, _ in read_labels(p)) for p in test_imgs])
     ft_scores = image_scores(YOLO(str(weights)), test_imgs, {C.POSITIVE_CLASS})
+    # Best a COCO model can do zero-shot: it sees people, not helmets.
     coco_scores = image_scores(YOLO(C.BASE_MODEL), test_imgs, {"person"})
     trivial_scores = np.zeros(len(test_imgs))  # predicts nothing -> always PASS
 
     pd.DataFrame({
         "image": [p.name for p in test_imgs],
         "is_violation": labels.astype(int),
-        "score_finetuned": ft_scores.round(4),
-        "score_coco_person": coco_scores.round(4),
+        # Full precision on purpose: app.py re-runs the cost sweep from this file,
+        # and rounded scores can move an image across a threshold, so the app
+        # would pick a different "cheapest" threshold than this script does.
+        "score_finetuned": ft_scores,
+        "score_coco_person": coco_scores,
     }).to_csv(C.ARTIFACTS_DIR / "test_scores.csv", index=False)
 
     params = C.cost_params()
